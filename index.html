@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>写意水墨锦鲤池塘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #bdb193; /* 古朴背景色 */
+            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans CN", sans-serif;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0.12;
+            pointer-events: none;
+            background-image: url('https://www.transparenttextures.com/patterns/paper-fibers.png');
+            z-index: 5;
+        }
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+        .control-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-action {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            color: #555;
+            outline: none;
+        }
+        .btn-action svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+        .btn-action:hover {
+            background: rgba(255, 255, 255, 0.9);
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+        }
+        .btn-action:active {
+            transform: scale(0.95);
+        }
+        .btn-action.active {
+            background: #c22f1f;
+            color: white;
+            border-color: #c22f1f;
+            box-shadow: 0 0 20px rgba(194, 47, 31, 0.4);
+        }
+        .hint {
+            color: #c22f1f;
+            font-size: 12px;
+            font-weight: 600;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.3s ease;
+            pointer-events: none;
+            white-space: nowrap;
+            background: rgba(189, 177, 147, 0.9);
+            padding: 2px 10px;
+            border-radius: 20px;
+            border: 1px solid rgba(194, 47, 31, 0.2);
+        }
+        .active-hint {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <div class="btn-group">
+            <div class="control-item">
+                <button id="addFishBtn" class="btn-action" title="投放鱼苗">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22,12C22,12 19,17 12,17C10,17 8.24,16.5 6.78,15.7L2,19V14.5L5.3,12.3C4.5,10.8 4,9 4,7C4,3 9,2 12,2C19,2 22,7 22,12M12,7A2,2 0 1,0 14,9A2,2 0 0,0 12,7Z" />
+                    </svg>
+                </button>
+                <div class="hint" id="fishHint">增加一只小鱼苗</div>
+            </div>
+            <div class="control-item">
+                <button id="feedBtn" class="btn-action" title="投喂鱼食">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="8" cy="8" r="3" />
+                        <circle cx="16" cy="10" r="2.5" />
+                        <circle cx="10" cy="16" r="3.5" />
+                    </svg>
+                </button>
+                <div class="hint" id="feedHint">点击水面投放鱼食</div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="pondCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('pondCanvas');
+        const ctx = canvas.getContext('2d');
+        const feedBtn = document.getElementById('feedBtn');
+        const addFishBtn = document.getElementById('addFishBtn');
+        const feedHint = document.getElementById('feedHint');
+        const fishHint = document.getElementById('fishHint');
+
+        let width, height;
+        let ripples = [];
+        let fishes = [];
+        let plants = [];
+        let foods = []; 
+        let bubbles = []; 
+        let mouse = { x: -1000, y: -1000, active: false };
+        let isFeedingMode = false;
+        
+        const FISH_COUNT = 8; 
+        const PLANT_COUNT = 8;
+        const DUCKWEED_COUNT = 12; 
+        const SEPARATION_DISTANCE = 85; 
+        const MAX_BEND_ANGLE = 0.28; 
+        const BACKGROUND_COLOR = '#bdb193';
+
+        const causticsCanvas = document.createElement('canvas');
+        const cCtx = causticsCanvas.getContext('2d');
+        let causticsTime = 0;
+        let causticPatches = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            if (width === 0 || height === 0) return;
+            canvas.width = width;
+            canvas.height = height;
+            causticsCanvas.width = width;
+            causticsCanvas.height = height;
+            initPlants();
+            initCausticPatches();
+        }
+
+        const random = (min, max) => Math.random() * (max - min) + min;
+
+        function hexToRgba(hex, opacity) {
+            let r = 0, g = 0, b = 0;
+            if (hex.startsWith('#')) {
+                if (hex.length === 4) {
+                    r = parseInt(hex[1] + hex[1], 16);
+                    g = parseInt(hex[2] + hex[2], 16);
+                    b = parseInt(hex[3] + hex[3], 16);
+                } else {
+                    r = parseInt(hex.substring(1, 3), 16);
+                    r = isNaN(r) ? 0 : r;
+                    g = parseInt(hex.substring(3, 5), 16);
+                    g = isNaN(g) ? 0 : g;
+                    b = parseInt(hex.substring(5, 7), 16);
+                    b = isNaN(b) ? 0 : b;
+                }
+            }
+            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        }
+
+        function initCausticPatches() {
+            causticPatches = [];
+            const count = 45; 
+            for (let i = 0; i < count; i++) {
+                const vertices = [];
+                const vCount = Math.floor(random(6, 12));
+                for (let v = 0; v < vCount; v++) {
+                    const angle = (v / vCount) * Math.PI * 2;
+                    vertices.push({
+                        angle: angle + random(-0.2, 0.2),
+                        dist: random(0.3, 1.8)
+                    });
+                }
+                causticPatches.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: random(15, 95),
+                    vertices: vertices,
+                    speed: random(0.3, 0.7),
+                    phase: Math.random() * Math.PI * 2,
+                    rotSpeed: random(-0.008, 0.008),
+                    baseAlpha: random(0.4, 0.7) 
+                });
+            }
+        }
+
+        function drawWaterCaustics(targetCtx) {
+            if (causticsCanvas.width === 0 || causticsCanvas.height === 0) return;
+            causticsTime += 0.008; 
+            cCtx.clearRect(0, 0, causticsCanvas.width, causticsCanvas.height);
+            cCtx.save();
+            cCtx.globalCompositeOperation = 'lighter';
+            const CAUSTIC_COLOR = '#fbebc6';
+            causticPatches.forEach(p => {
+                const driftX = Math.sin(causticsTime * p.speed + p.phase) * 15;
+                const driftY = Math.cos(causticsTime * p.speed * 0.9 + p.phase) * 10;
+                const pulse = 0.85 + Math.sin(causticsTime * 0.5 + p.phase) * 0.15;
+                let alpha = (p.baseAlpha + Math.sin(causticsTime * 0.6 + p.phase) * 0.3);
+                alpha = Math.max(0.05, Math.min(0.85, alpha)); 
+                cCtx.save();
+                cCtx.translate(p.x + driftX, p.y + driftY);
+                cCtx.rotate(causticsTime * p.rotSpeed + p.phase);
+                cCtx.scale(pulse, pulse);
+                cCtx.beginPath();
+                p.vertices.forEach((v, i) => {
+                    const r = p.size * v.dist;
+                    const vx = Math.cos(v.angle) * r;
+                    const vy = Math.sin(v.angle) * r;
+                    if (i === 0) cCtx.moveTo(vx, vy);
+                    else cCtx.lineTo(vx, vy);
+                });
+                cCtx.closePath();
+                const grad = cCtx.createRadialGradient(0, 0, 0, 0, 0, p.size * 1.5);
+                grad.addColorStop(0, hexToRgba(CAUSTIC_COLOR, alpha));
+                grad.addColorStop(0.5, hexToRgba(CAUSTIC_COLOR, alpha * 0.3));
+                grad.addColorStop(1, 'transparent');
+                cCtx.fillStyle = grad;
+                cCtx.fill();
+                cCtx.globalAlpha = alpha * 0.15;
+                cCtx.strokeStyle = CAUSTIC_COLOR;
+                cCtx.lineWidth = 0.5;
+                cCtx.stroke();
+                cCtx.restore();
+            });
+            cCtx.restore();
+            targetCtx.save();
+            targetCtx.filter = 'blur(4px)'; 
+            targetCtx.globalAlpha = 0.75;  
+            targetCtx.drawImage(causticsCanvas, 0, 0);
+            targetCtx.restore();
+        }
+
+        class Ripple {
+            constructor(x, y, scale = 1) {
+                this.x = x; this.y = y; this.life = 1.0; this.decay = 0.0035; 
+                this.layerCount = Math.floor(random(5, 9)); 
+                this.layers = [];
+                // 增大默认扩散范围和速度
+                const uniformSpeed = 0.35 * scale; 
+                for(let i = 0; i < this.layerCount; i++) {
+                    this.layers.push({
+                        delay: i * 18, speed: uniformSpeed,
+                        maxRadius: (80 + i * 30) * scale, // 扩散半径加大
+                        thickness: random(0.5, 1.0)
+                    });
+                }
+            }
+            update() { this.life -= this.decay; return this.life > 0; }
+            draw(ctx) {
+                ctx.save();
+                for(let i = 0; i < this.layerCount; i++) {
+                    const layer = this.layers[i];
+                    const age = (1.0 - this.life) * 300; 
+                    const currentRadius = Math.max(0, (age - layer.delay) * layer.speed);
+                    if (currentRadius > 0) {
+                        const fadeByRadius = Math.max(0, 1 - currentRadius / layer.maxRadius);
+                        const layerAlpha = this.life * 0.2 * fadeByRadius;
+                        if (layerAlpha > 0) {
+                            ctx.beginPath();
+                            ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+                            ctx.strokeStyle = `rgba(0, 0, 0, ${layerAlpha})`;
+                            ctx.lineWidth = layer.thickness;
+                            ctx.stroke();
+                        }
+                    }
+                }
+                ctx.restore();
+            }
+        }
+
+        class Bubble {
+            constructor(x, y, scale = 1) {
+                this.x = x;
+                this.y = y;
+                this.vx = random(-0.2, 0.2);
+                this.vy = random(-0.5, -1.2); 
+                this.radius = random(1.5, 4) * scale;
+                this.life = 1.0;
+                this.decay = random(0.002, 0.005);
+                this.oscillation = random(0, Math.PI * 2);
+            }
+            update() {
+                this.life -= this.decay;
+                this.oscillation += 0.05;
+                this.x += this.vx + Math.sin(this.oscillation) * 0.3;
+                this.y += this.vy;
+                return this.life > 0;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life * 0.4;
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 0.8;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.15, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Food {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.baseRadius = random(1.5, 2.5); this.radius = this.baseRadius;
+                this.color = '#5a311b'; this.life = 1.0; this.decay = 0.002; this.isEaten = false;
+            }
+            update() { this.life -= this.decay; this.radius = this.baseRadius * Math.pow(this.life, 0.5); return this.life > 0 && !this.isEaten; }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                const spreadRadius = this.radius * 3 * (1 + (1 - this.life));
+                const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, spreadRadius);
+                grad.addColorStop(0, hexToRgba(this.color, 0.3 * this.life));
+                grad.addColorStop(1, hexToRgba(this.color, 0));
+                ctx.fillStyle = grad;
+                ctx.beginPath(); ctx.arc(this.x, this.y, spreadRadius, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = this.color;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Koi {
+            constructor(id, isBaby = false) { 
+                this.id = id; 
+                this.age = isBaby ? 0.25 : 1.0; 
+                this.init(); 
+                if (isBaby) {
+                    this.x = random(width * 0.1, width * 0.9);
+                    this.y = random(height * 0.1, height * 0.9);
+                    ripples.push(new Ripple(this.x, this.y, 0.5));
+                }
+            }
+            init() {
+                this.x = Math.random() * (width || 800); this.y = Math.random() * (height || 600);
+                this.angle = Math.random() * Math.PI * 2; this.depth = Math.random(); 
+                this.scaleBase = 1.0 - (this.depth * 0.35); 
+                this.targetVelocity = random(0.5, 0.9); this.velocity = this.targetVelocity;
+                this.turnMomentum = 0; this.maxTurnSpeed = 0.012;
+                this.baseLength = random(95, 133);
+                const baseColors = ['#fcfaf2', '#c22f1f', '#2e2e31', '#e6b422'];
+                this.baseColor = baseColors[Math.floor(Math.random() * baseColors.length)];
+                this.patterns = [];
+                const inkColors = ['rgba(190, 40, 25, ', 'rgba(25, 25, 28, ', 'rgba(215, 100, 35, ', 'rgba(240, 190, 20, '];
+                for(let i = 0; i < 4; i++) {
+                    this.addPattern(inkColors, 5.7, 12.3, 12, 20, random(0.5, 0.8), random(2.5, 4.0));
+                }
+                this.nodesCount = 25; 
+                this.bodyParts = [];
+                for(let i = 0; i < this.nodesCount; i++) {
+                    this.bodyParts.push({x: this.x, y: this.y, angle: this.angle});
+                }
+                this.phase = Math.random() * Math.PI * 2; 
+            }
+            addPattern(colorList, minR, maxR, minV, maxV, baseOpacity, baseBlur) {
+                const vertices = [];
+                const vCount = Math.floor(random(minV, maxV));
+                const baseRadius = random(minR, maxR);
+                for(let v = 0; v < vCount; v++) vertices.push(baseRadius * random(0.6, 1.6));
+                const localOffX = random(-7, 7);
+                const localOffY = random(-7, 7);
+                this.patterns.push({
+                    nodeIdx: Math.floor(random(1, 15)), 
+                    localDist: Math.sqrt(localOffX*localOffX + localOffY*localOffY),
+                    localAngle: Math.atan2(localOffY, localOffX),
+                    vertices: vertices, color: colorList[Math.floor(Math.random() * colorList.length)],
+                    opacity: baseOpacity, blurScale: baseBlur, baseRadius: baseRadius
+                });
+            }
+            update(others) {
+                if (this.age < 1.0) {
+                    this.age += 0.0001; 
+                }
+
+                const currentScale = this.scaleBase * this.age;
+                const currentLength = this.baseLength * currentScale;
+
+                let sepX = 0, sepY = 0, count = 0;
+                others.forEach(other => {
+                    if (other.id !== this.id) {
+                        const dx = this.x - other.x; const dy = this.y - other.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist > 0 && dist < SEPARATION_DISTANCE * currentScale) { sepX += dx / dist; sepY += dy / dist; count++; }
+                    }
+                });
+                if (count > 0) { const targetAngle = Math.atan2(sepY, sepX); this.smoothTurn(targetAngle, 0.0006); }
+
+                let closestFood = null; let minDist = Infinity;
+                foods.forEach(food => {
+                    const dx = food.x - this.x; const dy = food.y - this.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    const adjustedDist = dist / (0.1 + food.life); 
+                    if (adjustedDist < minDist && dist < 500) { minDist = adjustedDist; closestFood = food; }
+                });
+
+                if (closestFood) {
+                    const rawDist = Math.sqrt(Math.pow(closestFood.x - this.x, 2) + Math.pow(closestFood.y - this.y, 2));
+                    const attractAngle = Math.atan2(closestFood.y - this.y, closestFood.x - this.x);
+                    this.smoothTurn(attractAngle, 0.002);
+                    this.velocity += (this.targetVelocity * 2.2 - this.velocity) * 0.05; 
+                    if (rawDist < 15 * currentScale) { 
+                        closestFood.isEaten = true; 
+                        ripples.push(new Ripple(closestFood.x, closestFood.y, 0.6 * currentScale)); // 食物波纹稍大
+                        this.velocity *= 0.5;
+                        if (this.age < 1.0) this.age += 0.05; 
+                        if (Math.random() > 0.3) {
+                           for(let i=0; i<3; i++) bubbles.push(new Bubble(this.x, this.y, currentScale));
+                        }
+                    }
+                } else if (mouse.active) {
+                    const dx = this.x - mouse.x; const dy = this.y - mouse.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 300) {
+                        if (dist < 100) { const fleeAngle = Math.atan2(dy, dx); this.smoothTurn(fleeAngle, 0.005); this.velocity += (this.targetVelocity * 3.5 - this.velocity) * 0.1; }
+                        else if (dist < 250) { const attractAngle = Math.atan2(-dy, -dx); this.smoothTurn(attractAngle, 0.001); this.velocity += (this.targetVelocity * 1.2 - this.velocity) * 0.02; }
+                    }
+                }
+
+                if (Math.random() < 0.01) this.turnMomentum += random(-0.002, 0.002);
+                this.turnMomentum = Math.max(-this.maxTurnSpeed, Math.min(this.maxTurnSpeed, this.turnMomentum));
+                this.turnMomentum *= 0.98;
+
+                const margin = 120;
+                if (this.x < margin || this.x > width - margin || this.y < margin || this.y > height - margin) {
+                    const centerAngle = Math.atan2(height/2 - this.y, width/2 - this.x);
+                    this.smoothTurn(centerAngle, 0.0005);
+                }
+
+                this.angle += this.turnMomentum;
+                this.velocity += (this.targetVelocity - this.velocity) * 0.015;
+                this.x += Math.cos(this.angle) * this.velocity; this.y += Math.sin(this.angle) * this.velocity;
+
+                if (Math.random() < 0.003) {
+                    bubbles.push(new Bubble(this.x, this.y, currentScale));
+                }
+
+                // 鱼尾触发涟漪逻辑：
+                // 1. 降低触发概率，确认为单次。
+                // 2. 增加扩散范围 (scale 设为 0.8 或更大)。
+                if (Math.random() < 0.003 && this.velocity > 0.65) {
+                    const tailNode = this.bodyParts[Math.floor(this.nodesCount * 0.5)];
+                    ripples.push(new Ripple(tailNode.x, tailNode.y, 0.9 * currentScale));
+                }
+
+                this.bodyParts[0].x = this.x; this.bodyParts[0].y = this.y; this.bodyParts[0].angle = this.angle; 
+                for (let i = 1; i < this.nodesCount; i++) {
+                    const cur = this.bodyParts[i]; const prev = this.bodyParts[i-1];
+                    const dx = prev.x - cur.x; const dy = prev.y - cur.y;
+                    let angleToPrev = Math.atan2(dy, dx);
+                    let diff = angleToPrev - prev.angle;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    if (Math.abs(diff) > MAX_BEND_ANGLE) angleToPrev = prev.angle + (diff > 0 ? MAX_BEND_ANGLE : -MAX_BEND_ANGLE);
+                    const dist = (currentLength / this.nodesCount) * 0.85;
+                    cur.x = prev.x - Math.cos(angleToPrev) * dist; cur.y = prev.y - Math.sin(angleToPrev) * dist;
+                    cur.angle = angleToPrev;
+                }
+                this.phase += this.velocity * 0.05 + 0.02; 
+            }
+
+            smoothTurn(targetAngle, force) {
+                let diff = targetAngle - this.angle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                this.turnMomentum += diff * force;
+            }
+
+            draw(ctx) {
+                const currentScale = this.scaleBase * this.age;
+                const globalAlpha = 1.0 - (this.depth * 0.65);
+                const shadowOffset = 48 * (1.0 - this.depth * 0.9) * this.age;
+                ctx.save();
+                ctx.globalAlpha = globalAlpha;
+                ctx.save(); ctx.translate(shadowOffset, shadowOffset); this.drawKoiLayers(ctx, true, currentScale); ctx.restore();
+                this.drawKoiLayers(ctx, false, currentScale);
+                ctx.restore();
+            }
+
+            drawKoiLayers(ctx, isShadow, currentScale) {
+                const nodesCount = this.nodesCount; const head = this.bodyParts[0];
+                if (!isShadow) {
+                    const finSwing = Math.sin(this.phase) * 0.15;
+                    const finNode = this.bodyParts[2] || head;
+                    [1, -1].forEach(side => {
+                        ctx.save();
+                        const r = this.getThickness(2, currentScale);
+                        const finAnchorX = finNode.x + Math.cos(finNode.angle + side * 1.57) * r;
+                        const finAnchorY = finNode.y + Math.sin(finNode.angle + side * 1.57) * r;
+                        ctx.translate(finAnchorX, finAnchorY); ctx.rotate(finNode.angle);
+                        const finGrad = ctx.createLinearGradient(0, 0, -32 * currentScale, side * 16 * currentScale);
+                        finGrad.addColorStop(0, hexToRgba(this.baseColor, 0.45)); finGrad.addColorStop(1, hexToRgba(BACKGROUND_COLOR, 0.0));
+                        ctx.fillStyle = finGrad; ctx.beginPath(); ctx.moveTo(0, 0); 
+                        ctx.bezierCurveTo(-4.0 * currentScale, side * 8 * currentScale, -20.0 * currentScale, side * (28.0 + finSwing) * currentScale, -34.0 * currentScale, side * (22.0 + finSwing) * currentScale);
+                        ctx.bezierCurveTo(-24.0 * currentScale, side * 8 * currentScale, -12.0 * currentScale, side * 1.5 * currentScale, -16.0 * currentScale, 0);
+                        ctx.closePath(); ctx.fill(); ctx.restore();
+                    });
+                }
+                ctx.save(); ctx.beginPath();
+                for (let i = 0; i < nodesCount; i++) {
+                    const p = this.bodyParts[i]; const r = this.getThickness(i, currentScale);
+                    ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.closePath();
+                }
+                if (isShadow) {
+                    const shadowAlpha = 0.15 * (1.0 - this.depth * 0.75);
+                    ctx.fillStyle = `rgba(0,0,0,${shadowAlpha})`; ctx.fill();
+                } else {
+                    ctx.fillStyle = this.baseColor; ctx.fill();
+                    if (this.depth > 0.05) { ctx.fillStyle = hexToRgba(BACKGROUND_COLOR, this.depth * 0.85); ctx.fill(); }
+                    ctx.clip(); 
+                    this.patterns.forEach(p => {
+                        const node = this.bodyParts[p.nodeIdx];
+                        ctx.save(); ctx.translate(node.x, node.y); ctx.rotate(node.angle);
+                        const px = Math.cos(p.localAngle) * p.localDist * currentScale; const py = Math.sin(p.localAngle) * p.localDist * currentScale;
+                        const layers = 3;
+                        for(let l = 0; l < layers; l++) {
+                            const scale = (1 + (l * 0.4)) * currentScale;
+                            const layerOpacity = p.opacity * (1 - l/layers) * (1 - this.depth * 0.5);
+                            ctx.beginPath();
+                            const vc = p.vertices.length;
+                            for(let v = 0; v < vc; v++) {
+                                const ang = (v / vc) * Math.PI * 2; const r = p.vertices[v] * scale;
+                                ctx.lineTo(px + Math.cos(ang) * r, py + Math.sin(ang) * r);
+                            }
+                            ctx.closePath();
+                            const grad = ctx.createRadialGradient(px, py, 0, px, py, p.baseRadius * p.blurScale * scale);
+                            grad.addColorStop(0, p.color + layerOpacity + ')'); grad.addColorStop(1, p.color + '0)');
+                            ctx.fillStyle = grad; ctx.fill();
+                        }
+                        ctx.restore();
+                    });
+                }
+                ctx.restore();
+                
+                const tailBase = this.bodyParts[nodesCount - 1];
+                ctx.save(); ctx.translate(tailBase.x, tailBase.y); ctx.rotate(tailBase.angle + Math.sin(this.phase) * 0.15);
+                if (isShadow) { ctx.fillStyle = `rgba(0,0,0,${0.08 * (1.0 - this.depth * 0.8)})`; }
+                else {
+                    const tailGrad = ctx.createLinearGradient(0, 0, -45 * currentScale, 0);
+                    tailGrad.addColorStop(0, hexToRgba(this.baseColor, 0.45)); tailGrad.addColorStop(1, hexToRgba(BACKGROUND_COLOR, 0.0)); 
+                    ctx.fillStyle = tailGrad;
+                }
+                ctx.beginPath(); ctx.moveTo(0, 0);
+                ctx.bezierCurveTo(-15 * currentScale, 12 * currentScale, -35 * currentScale, 10 * currentScale, -45 * currentScale, 0);
+                ctx.bezierCurveTo(-35 * currentScale, -10 * currentScale, -15 * currentScale, -12 * currentScale, 0, 0);
+                ctx.fill(); ctx.restore();
+                
+                if (!isShadow) {
+                    ctx.fillStyle = `rgba(10,10,15,${0.9 * (1.0 - this.depth * 0.6)})`;
+                    [0.55, -0.55].forEach(a => {
+                        const eyeX = head.x + Math.cos(head.angle + a) * 7.6 * currentScale;
+                        const eyeY = head.y + Math.sin(head.angle + a) * 7.6 * currentScale;
+                        ctx.beginPath(); ctx.arc(eyeX, eyeY, 1.7 * currentScale, 0, Math.PI * 2); ctx.fill();
+                    });
+                }
+            }
+            getThickness(i, currentScale) {
+                const s = i / (this.nodesCount - 1);
+                let baseT;
+                if (s < 0.25) baseT = 4.75 + Math.sin(s * Math.PI * 2) * 4.94;
+                else baseT = 9.69 * Math.pow(Math.cos((s - 0.25) * (Math.PI / 1.35)), 2.2) + 1.0;
+                return baseT * currentScale;
+            }
+        }
+
+        class Plant {
+            constructor(isSmall = false) {
+                this.x = Math.random() * width; this.y = Math.random() * height;
+                this.isSmall = isSmall; this.size = isSmall ? random(8, 25) : random(65, 120);
+                this.angle = Math.random() * Math.PI * 2; this.offset = Math.random() * 1000;
+                const palettes = [
+                    { inner: '#1a3324', mid: '#2d503b', outer: '#4b7558' },
+                    { inner: '#143d37', mid: '#2d635a', outer: '#568b7a' },
+                    { inner: '#1b261f', mid: '#2d4a3b', outer: '#3d5e4a' }
+                ];
+                this.colors = palettes[Math.floor(Math.random() * palettes.length)];
+                this.hasNotch = !isSmall && Math.random() > 0.4;
+                this.notchAngle = Math.random() * Math.PI * 2; this.notchWidth = random(0.3, 0.5);
+                this.vertices = [];
+                const vCount = isSmall ? 20 : 60; 
+                for(let i = 0; i < vCount; i++) {
+                    const a = (i / vCount) * Math.PI * 2;
+                    let dist = 0.96 + Math.sin(a * 4) * 0.03 + Math.random() * 0.02;
+                    if (this.hasNotch) {
+                        let diff = Math.abs(a - this.notchAngle); if (diff > Math.PI) diff = Math.PI * 2 - diff;
+                        if (diff < this.notchWidth) {
+                            const factor = diff / this.notchWidth; const depth = 0.35 + Math.random() * 0.1;
+                            dist = depth + (dist - depth) * Math.pow(factor, 1.2); dist += (Math.random() - 0.5) * 0.04;
+                        }
+                    }
+                    this.vertices.push({ angle: a, dist: dist });
+                }
+            }
+            draw(ctx) {
+                const drift = Math.sin(Date.now() * 0.0004 + this.offset) * (this.isSmall ? 3 : 5);
+                ctx.save(); ctx.translate(this.x + drift, this.y + drift); ctx.rotate(this.angle);
+                const shadowOffset = this.isSmall ? 10 : 25;
+                ctx.save(); ctx.translate(shadowOffset, shadowOffset); ctx.fillStyle = 'rgba(0, 0, 0, 0.08)'; this.drawPath(ctx, 1.05); ctx.fill(); ctx.restore();
+                if (this.isSmall) { ctx.fillStyle = hexToRgba(this.colors.mid, 0.85); this.drawPath(ctx, 1.0); ctx.fill(); }
+                else {
+                    ctx.fillStyle = hexToRgba(this.colors.outer, 0.9); this.drawPath(ctx, 1.0); ctx.fill();
+                    const midGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
+                    midGrad.addColorStop(0, this.colors.inner); midGrad.addColorStop(0.55, this.colors.mid); midGrad.addColorStop(1, this.colors.outer);
+                    ctx.fillStyle = midGrad; this.drawPath(ctx, 1.0); ctx.fill();
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1.2;
+                    const veinCount = 14;
+                    for(let i = 0; i < veinCount; i++) {
+                        const a = (i / veinCount) * Math.PI * 2; let currentLen = this.size * 0.75;
+                        if (this.hasNotch) {
+                            let diff = Math.abs(a - this.notchAngle); if (diff > Math.PI) diff = Math.PI * 2 - diff;
+                            if (diff < this.notchWidth) currentLen *= (diff / this.notchWidth) * 0.8 + 0.2;
+                        }
+                        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * currentLen, Math.sin(a) * currentLen); ctx.stroke();
+                    }
+                }
+                ctx.restore();
+            }
+            drawPath(ctx, scale) {
+                ctx.beginPath();
+                this.vertices.forEach((v, i) => {
+                    const r = this.size * v.dist * scale; const px = Math.cos(v.angle) * r; const py = Math.sin(v.angle) * r;
+                    if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                });
+                ctx.closePath();
+            }
+        }
+
+        function initPlants() {
+            plants = [];
+            for (let i = 0; i < DUCKWEED_COUNT; i++) plants.push(new Plant(true));
+            for (let i = 0; i < PLANT_COUNT; i++) plants.push(new Plant(false));
+        }
+
+        function initFishes() {
+            fishes = [];
+            for (let i = 0; i < FISH_COUNT; i++) fishes.push(new Koi(i));
+        }
+
+        function animate() {
+            ctx.fillStyle = BACKGROUND_COLOR;
+            ctx.fillRect(0, 0, width, height);
+            
+            ripples = ripples.filter(r => { const active = r.update(); if (active) r.draw(ctx); return active; });
+            foods = foods.filter(f => { const active = f.update(); if (active) f.draw(ctx); return active; });
+            bubbles = bubbles.filter(b => { const active = b.update(); if (active) b.draw(ctx); return active; });
+            
+            fishes.sort((a, b) => b.depth - a.depth);
+            fishes.forEach(f => { f.update(fishes); f.draw(ctx); });
+            plants.forEach(p => p.draw(ctx));
+
+            drawWaterCaustics(ctx);
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', resize);
+        const updateMouse = (e) => {
+            mouse.x = e.clientX || (e.touches && e.touches[0].clientX);
+            mouse.y = e.clientY || (e.touches && e.touches[0].clientY);
+            mouse.active = true;
+        };
+
+        window.addEventListener('mousemove', updateMouse);
+        window.addEventListener('mousedown', (e) => {
+            updateMouse(e);
+            if (isFeedingMode) { 
+                foods.push(new Food(mouse.x, mouse.y)); 
+                ripples.push(new Ripple(mouse.x, mouse.y, 0.8)); 
+            } else { 
+                ripples.push(new Ripple(mouse.x, mouse.y, 1.2)); 
+            }
+        });
+        window.addEventListener('mouseup', () => { mouse.active = false; });
+        window.addEventListener('touchstart', (e) => {
+            updateMouse(e);
+            if (isFeedingMode) { 
+                foods.push(new Food(mouse.x, mouse.y)); 
+                ripples.push(new Ripple(mouse.x, mouse.y, 0.8)); 
+            } else { 
+                ripples.push(new Ripple(mouse.x, mouse.y, 1.2)); 
+            }
+        });
+        window.addEventListener('touchend', () => { mouse.active = false; });
+
+        feedBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); 
+            isFeedingMode = !isFeedingMode;
+            feedBtn.classList.toggle('active', isFeedingMode);
+            feedHint.classList.toggle('active-hint', isFeedingMode);
+        });
+
+        addFishBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const newId = fishes.length + Date.now();
+            fishes.push(new Koi(newId, true));
+            fishHint.classList.add('active-hint');
+            setTimeout(() => { if(!isFeedingMode) fishHint.classList.remove('active-hint'); }, 2000);
+        });
+        
+        window.onload = () => { resize(); initFishes(); animate(); };
+    </script>
+</body>
+</html>
