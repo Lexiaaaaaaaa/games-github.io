@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多喂多长池塘 - 重置鱼苗版</title>
+    <title>锦鲤池塘 - 生长控制版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -181,6 +181,14 @@
                 </button>
                 <div class="hint" id="resetHint">全部变回鱼苗</div>
             </div>
+            <div class="control-item">
+                <button id="growthToggleBtn" class="btn-action" title="生长控制开关">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M18,2H6A2,2 0 0,0 4,4V11A8,8 0 0,0 12,19V22H16V19A8,8 0 0,0 20,11V4A2,2 0 0,0 18,2M6,4H11V11A1,1 0 0,1 10,12A1,1 0 0,1 9,11V4H6M18,11A1,1 0 0,1 17,12A1,1 0 0,1 16,11V4H18V11Z" />
+                    </svg>
+                </button>
+                <div class="hint" id="growthHint">巨大鱼模式：关</div>
+            </div>
         </div>
     </div>
 
@@ -192,9 +200,12 @@
         const feedBtn = document.getElementById('feedBtn');
         const addFishBtn = document.getElementById('addFishBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const growthToggleBtn = document.getElementById('growthToggleBtn');
+        
         const feedHint = document.getElementById('feedHint');
         const fishHint = document.getElementById('fishHint');
         const resetHint = document.getElementById('resetHint');
+        const growthHint = document.getElementById('growthHint');
         const alertModal = document.getElementById('alertModal');
 
         let width, height;
@@ -205,6 +216,7 @@
         let bubbles = []; 
         let mouse = { x: -1000, y: -1000, active: false };
         let isFeedingMode = false;
+        let isGrowthEnabled = false; // 启动时默认关闭
         
         const FISH_COUNT = 8; 
         const PLANT_COUNT = 8;
@@ -213,8 +225,8 @@
         const MAX_BEND_ANGLE = 0.28; 
         const BACKGROUND_COLOR = '#bdb193';
         const MAX_AGE = 5.0; 
-        const GIANT_THRESHOLD = 3.5; // 定义“巨大”的阈值
-        const MAX_GIANT_COUNT = 5; // 限制巨大鱼数量
+        const GIANT_THRESHOLD = 3.5; 
+        const MAX_GIANT_COUNT = 5; 
 
         const causticsCanvas = document.createElement('canvas');
         const cCtx = causticsCanvas.getContext('2d');
@@ -525,16 +537,21 @@
                         ripples.push(new Ripple(closestFood.x, closestFood.y, 0.6 * currentScale));
                         this.velocity *= 0.5;
                         
-                        const giantFishCount = fishes.filter(f => f.age >= GIANT_THRESHOLD).length;
-                        
-                        if (this.age < GIANT_THRESHOLD) {
-                             if (giantFishCount >= MAX_GIANT_COUNT) {
-                                 showAlert();
-                             } else {
-                                 this.age += 0.12;
-                             }
+                        if (isGrowthEnabled) {
+                            const giantFishCount = fishes.filter(f => f.age >= GIANT_THRESHOLD).length;
+                            if (this.age < GIANT_THRESHOLD) {
+                                 if (giantFishCount >= MAX_GIANT_COUNT) {
+                                     showAlert();
+                                 } else {
+                                     this.age += 0.12;
+                                 }
+                            } else {
+                                if (this.age < MAX_AGE) this.age += 0.05;
+                            }
                         } else {
-                            if (this.age < MAX_AGE) this.age += 0.05;
+                            if (this.age < 1.0) {
+                                this.age = Math.min(1.0, this.age + 0.12);
+                            }
                         }
                         
                         if (Math.random() > 0.3) {
@@ -831,6 +848,15 @@
             fishes.forEach(fish => fish.resetToBaby());
             resetHint.classList.add('active-hint');
             setTimeout(() => { resetHint.classList.remove('active-hint'); }, 2000);
+        });
+
+        growthToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            isGrowthEnabled = !isGrowthEnabled;
+            growthToggleBtn.classList.toggle('active', isGrowthEnabled);
+            growthHint.innerText = `巨大鱼模式：${isGrowthEnabled ? '开' : '关'}`;
+            growthHint.classList.add('active-hint');
+            setTimeout(() => { if(!isFeedingMode) growthHint.classList.remove('active-hint'); }, 2000);
         });
         
         window.onload = () => { resize(); initFishes(); animate(); };
